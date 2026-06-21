@@ -180,6 +180,13 @@ double hod::ncen(double xm)
             }
             return res*inc*qf;
         }
+        case 8: { // mHMQ: skew-normal central
+                   // Mmin=log10(Mc), siglogM=sigM, fac=Ac, Mq=gamma
+            double dx=(xm-hodp.Mmin)/hodp.siglogM;
+            double gauss=hodp.fac/(sqrt(2.*M_PI)*hodp.siglogM)*exp(-0.5*dx*dx);
+            double skew=1.0+gsl_sf_erf(hodp.Mq*dx/sqrt(2.));
+            return gauss*skew;
+        }
         default:
         case 0: { // White+2012 with incompleteness
             double arg=(xm-hodp.Mmin)/hodp.siglogM;
@@ -257,6 +264,14 @@ double hod::nsat(double xm)
             res=res*inc*qf;
             res=res*pow(pow(10.,xm-hodp.Msat)-pow(10.,hodp.Mcut-hodp.Msat),hodp.alpsat);
             return res;
+        }
+        case 8: { // mHMQ: Nsat = As*((M-M0)/M1)^alpha
+                   // Mcut=log10(M0), Msat=log10(M1), alpsat=alpha, sigq=As
+            double M=pow(10.,xm);
+            double M0=pow(10.,hodp.Mcut);
+            double M1=pow(10.,hodp.Msat);
+            if(M<=M0) return 0.0;
+            return hodp.sigq*pow((M-M0)/M1,hodp.alpsat);
         }
         default:
         case 0: { // White+2012 with incompleteness

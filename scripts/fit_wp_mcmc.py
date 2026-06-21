@@ -65,6 +65,7 @@ DEFAULT_CONFIG = dict(
     prior_Mcut=[10.0, 15.5],
     prior_Mq=[13.0, 17.0],
     prior_sigq=[0.01, 2.0],
+    prior_fac=[0.01, 10.0],
 
     # Covariance correction
     hartlap_nmocks=0,
@@ -118,7 +119,7 @@ def _set_hod_params(theta):
     q.alpsat = params["alpsat"]
     q.Mcut = params["Mcut"]
     q.csbycdm = HOD_FIXED["csbycdm"]
-    q.fac = HOD_FIXED["fac"]
+    q.fac = params.get("fac", HOD_FIXED["fac"])
     q.hodtype = HOD_FIXED["hodtype"]
     q.Acen = params.get("Acen", HOD_FIXED["Acen"])
     q.Asat = params.get("Asat", HOD_FIXED["Asat"])
@@ -187,14 +188,19 @@ BASE_PARAMS = ["Mmin", "siglogM", "Msat", "alpsat", "Mcut"]
 EXTRA_PARAMS_BY_HODTYPE = {
     6: ["Acen", "Asat"],
     7: ["Mq", "sigq"],
+    8: ["fac", "Mq", "sigq"],  # mHMQ: fac=Ac, Mq=gamma, sigq=As
 }
 FIDUCIAL = {
     "Mmin": 13.0, "siglogM": 0.5, "Msat": 14.0, "alpsat": 1.0, "Mcut": 13.5,
-    "Acen": 0.0, "Asat": 0.0, "Mq": 15.0, "sigq": 0.5,
+    "Acen": 0.0, "Asat": 0.0, "Mq": 15.0, "sigq": 0.5, "fac": 1.0,
+}
+FIDUCIAL_BY_HODTYPE = {
+    8: {"Mmin": 12.5, "siglogM": 0.4, "Msat": 13.5, "alpsat": 1.0,
+        "Mcut": 12.0, "fac": 1.0, "Mq": -1.0, "sigq": 1.0},
 }
 SCATTER = {
     "Mmin": 0.1, "siglogM": 0.05, "Msat": 0.1, "alpsat": 0.05, "Mcut": 0.1,
-    "Acen": 0.05, "Asat": 0.05, "Mq": 0.2, "sigq": 0.05,
+    "Acen": 0.05, "Asat": 0.05, "Mq": 0.2, "sigq": 0.1, "fac": 0.1,
 }
 
 
@@ -468,6 +474,10 @@ def main():
         PARAM_NAMES += EXTRA_PARAMS_BY_HODTYPE[hodtype]
     globals()["PARAM_NAMES"] = PARAM_NAMES
 
+    # hodtype=8 uses Mq as gamma (skewness), which can be negative
+    if hodtype == 8 and cfg["prior_Mq"] == DEFAULT_CONFIG["prior_Mq"]:
+        cfg["prior_Mq"] = [-3.0, 3.0]
+
     PRIORS = [cfg[f"prior_{p}"] for p in PARAM_NAMES]
     globals()["PRIORS"] = PRIORS
 
@@ -480,7 +490,8 @@ def main():
     pimax = cfg["pimax"]
 
     # Validate: compute wp_Kaiser at fiducial to check timing
-    theta0 = [FIDUCIAL[p] for p in PARAM_NAMES]
+    fid = FIDUCIAL_BY_HODTYPE.get(hodtype, FIDUCIAL)
+    theta0 = [fid.get(p, FIDUCIAL[p]) for p in PARAM_NAMES]
     t0 = time.time()
     wp_test, ng_test = compute_wp(theta0, rp_bins, cfg["z_eff"], pimax)
     t_wp = time.time() - t0
