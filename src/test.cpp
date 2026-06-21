@@ -27,6 +27,12 @@ int main(){
     q.Mcut   =log10(1.39500)+q.Mmin;
     q.csbycdm=1;
     q.fac    =-0.25;
+    q.hodtype=0;
+    q.Acen=0.0;
+    q.Asat=0.0;
+    q.Mq=16.0;
+    q.sigq=0.5;
+    q.sig_lnc=0.0;
 
     hod h(p,q);
 

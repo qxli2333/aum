@@ -36,8 +36,14 @@
     Msat : Satellite halo occupation mass scale
     alpsat : Slope of the satellite halo occupation
     Mcut : Cut off mass scale of the satellite halo occupation
-    fac : Unused parameter
+    fac : Auxiliary parameter (model-dependent)
     csbycdm : Multiplicative factor for satellite concentrations
+    hodtype : Model type (0=White+2012, 1=Zheng05, 2=Tabulated, 3=ModWhite, 4=ModWhite2, 5=Zheng07, 6=Decorated, 7=Quenched)
+    Acen : Central assembly bias strength [-1,1] (hodtype=6)
+    Asat : Satellite assembly bias strength [-1,1] (hodtype=6)
+    Mq : Log10 quenching mass scale (hodtype=7)
+    sigq : Quenching width in dex (hodtype=7)
+    sig_lnc : Scatter in ln(c) at fixed mass (hodtype=6)
 
 
 :Returns:
@@ -69,6 +75,12 @@ Without any inputs, initializes to flat WMAP3 LCDM cosmology, cfac=1.0, ximax=lo
 >>> q.Mcut = 13.5
 >>> q.csbycdm = 1.0
 >>> q.fac = 1.0
+>>> q.hodtype = 0
+>>> q.Acen = 0.0
+>>> q.Asat = 0.0
+>>> q.Mq = 16.0
+>>> q.sigq = 0.5
+>>> q.sig_lnc = 0.0
 >>> a = h.hod(p, q)
 >>> help(a)
 

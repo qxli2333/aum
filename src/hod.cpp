@@ -6,20 +6,16 @@
 hod::~hod()
 {
     hod_free();
-#if TINK==2
     if(bool_init_ns){
         gsl_interp_accel_free(ns_acc);
         gsl_spline_free(ns_spline);
         bool_init_ns=false;
-        //std::cerr<<"Freeing ns splines "<<std::endl;
     }
     if(bool_init_nc){
         gsl_interp_accel_free(nc_acc);
         gsl_spline_free(nc_spline);
         bool_init_nc=false;
-        //std::cerr<<"Freeing nc splines "<<std::endl;
     }
-#endif
 
 }
 
@@ -65,10 +61,8 @@ hod::hod(cosmo p, hodpars h)
     fcen_off=0.0;
     inc_alp=0.0;
     inc_xM=12.0;
-#if TINK==2
     bool_init_nc=false;
     bool_init_ns=false;
-#endif
 }
 
 hod::hod()
@@ -82,6 +76,12 @@ hod::hod()
     hodp.Mcut=13.5;
     hodp.csbycdm=1.0;
     hodp.fac=1.0;
+    hodp.hodtype=0;
+    hodp.Acen=0.0;
+    hodp.Asat=0.0;
+    hodp.Mq=16.0;
+    hodp.sigq=0.5;
+    hodp.sig_lnc=0.0;
     if(verbose){
         std::cout<<"# HOD inited to: "<<"\n"
             <<"# Mmin "<<hodp.Mmin<<"\n" \
@@ -108,10 +108,8 @@ hod::hod()
     fcen_off=0.0;
     inc_alp=0.0;
     inc_xM=12.0;
-#if TINK==2
     bool_init_nc=false;
     bool_init_ns=false;
-#endif
 }
 
 void hod::sethalo_exc(bool mark){
@@ -122,55 +120,159 @@ void hod::setMiyatake21_switch(bool mark){
     miyatake21switch=mark;
 }
 
-#if TINK==1
-///And now all the different functions 
 ///Average number of central galaxies in a halo of mass m
 double hod::ncen(double xm)
 {
-    double arg=(xm-hodp.Mmin)/hodp.siglogM;
-    double res=0.5*(1+gsl_sf_erf(arg));
-    return res;
+    switch(hodp.hodtype) {
+        case 1: { // Zheng+2005
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            return 0.5*(1+gsl_sf_erf(arg));
+        }
+        case 2: { // Tabulated splines
+            if(!bool_init_nc){
+                std::cout<<"Spline for Nc not initialized\n";
+            }
+            double res=0.0;
+            if(xm<nc_mmin || xm>nc_mmax){
+                res=0.0;
+            }else{
+                res=pow(10.,gsl_spline_eval(nc_spline,xm,nc_acc));
+            }
+            if(res>1.0) res=1.0;
+            return res;
+        }
+        case 3: { // Modified White (fac scales central amplitude)
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            return hodp.fac*0.5*(1+gsl_sf_erf(arg));
+        }
+        case 4: { // Modified White variant (linear ramp fac->1)
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            double slp=(1.-hodp.fac)/(hodp.Mcut-hodp.Mmin);
+            double factor=hodp.fac+(xm-hodp.Mmin)*slp;
+            if(factor<0.0) factor=0.0;
+            if(factor>1.0) factor=1.0;
+            return factor*0.5*(1+gsl_sf_erf(arg));
+        }
+        case 5: { // Zheng+2007 five-parameter
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            return 0.5*(1+gsl_sf_erf(arg));
+        }
+        case 6: { // Decorated HOD (mean occupation, decoration in Pk_gg_gd_he)
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            double res=0.5*(1+gsl_sf_erf(arg));
+            double inc=1.0;
+            if(xm<inc_xM){
+                inc=1.0+inc_alp*(xm-inc_xM);
+                if(inc>1.0)inc=1.0;
+                if(inc<0.0)inc=0.0;
+            }
+            return res*inc;
+        }
+        case 7: { // High-mass quenching
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            double res=0.5*(1+gsl_sf_erf(arg));
+            double qf=0.5*(1.0-gsl_sf_erf((xm-hodp.Mq)/hodp.sigq));
+            double inc=1.0;
+            if(xm<inc_xM){
+                inc=1.0+inc_alp*(xm-inc_xM);
+                if(inc>1.0)inc=1.0;
+                if(inc<0.0)inc=0.0;
+            }
+            return res*inc*qf;
+        }
+        default:
+        case 0: { // White+2012 with incompleteness
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            double res=0.5*(1+gsl_sf_erf(arg));
+            double inc=1.0;
+            if(xm<inc_xM){
+                inc=1.0+inc_alp*(xm-inc_xM);
+                if(inc>1.0)inc=1.0;
+                if(inc<0.0)inc=0.0;
+            }
+            return res*inc;
+        }
+    }
 }
 
 ///Average number of satellite galaxies in a halo of mass m
 double hod::nsat(double xm)
 {
-    double arg=(xm-hodp.Mmin)/hodp.siglogM;
-    double res=0.5*(1+gsl_sf_erf(arg));
-    res=res*pow(10.,hodp.alpsat*(xm-hodp.Msat))*exp(-pow(10.,hodp.Mcut-xm));
-    return res;
-}
-#elif TINK==2
-///And now all the different functions 
-///Average number of central galaxies in a halo of mass m
-double hod::ncen(double xm)
-{
-    if(!bool_init_nc){
-        std::cout<<"Spline for Nc not initialized\n";
+    switch(hodp.hodtype) {
+        case 1: { // Zheng+2005
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            double res=0.5*(1+gsl_sf_erf(arg));
+            res=res*pow(10.,hodp.alpsat*(xm-hodp.Msat))*exp(-pow(10.,hodp.Mcut-xm));
+            return res;
+        }
+        case 2: { // Tabulated splines
+            if(!bool_init_ns){
+                std::cout<<"Spline for Ns not initialized\n";
+            }
+            double res=0.0;
+            if(xm<ns_mmin || xm>ns_mmax){
+                res=0.0;
+            }else{
+                res=pow(10.,gsl_spline_eval(ns_spline,xm,ns_acc));
+            }
+            return res;
+        }
+        case 3: { // Modified White
+            if(xm<hodp.Mcut) return 0;
+            return pow(pow(10.,xm-hodp.Msat)-pow(10.,hodp.Mcut-hodp.Msat),hodp.alpsat);
+        }
+        case 4: { // Modified White variant (pure power law)
+            return pow(pow(10.,xm-hodp.Msat),hodp.alpsat);
+        }
+        case 5: { // Zheng+2007: Nsat = ((M-M0)/M1)^alpha, M0=10^Mcut, M1=10^Msat
+            double M=pow(10.,xm);
+            double M0=pow(10.,hodp.Mcut);
+            double M1=pow(10.,hodp.Msat);
+            if(M<=M0) return 0.0;
+            return pow((M-M0)/M1,hodp.alpsat);
+        }
+        case 6: { // Decorated HOD (mean satellite, decoration in Pk_gg_gd_he)
+            if(xm<hodp.Mcut) return 0;
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            double res=0.5*(1+gsl_sf_erf(arg));
+            double inc=1.0;
+            if(xm<inc_xM){
+                inc=1.0+inc_alp*(xm-inc_xM);
+                if(inc>1.0)inc=1.0;
+            }
+            res=res*inc;
+            res=res*pow(pow(10.,xm-hodp.Msat)-pow(10.,hodp.Mcut-hodp.Msat),hodp.alpsat);
+            return res;
+        }
+        case 7: { // High-mass quenching
+            if(xm<hodp.Mcut) return 0;
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            double res=0.5*(1+gsl_sf_erf(arg));
+            double qf=0.5*(1.0-gsl_sf_erf((xm-hodp.Mq)/hodp.sigq));
+            double inc=1.0;
+            if(xm<inc_xM){
+                inc=1.0+inc_alp*(xm-inc_xM);
+                if(inc>1.0)inc=1.0;
+            }
+            res=res*inc*qf;
+            res=res*pow(pow(10.,xm-hodp.Msat)-pow(10.,hodp.Mcut-hodp.Msat),hodp.alpsat);
+            return res;
+        }
+        default:
+        case 0: { // White+2012 with incompleteness
+            if(xm<hodp.Mcut) return 0;
+            double arg=(xm-hodp.Mmin)/hodp.siglogM;
+            double res=0.5*(1+gsl_sf_erf(arg));
+            double inc=1.0;
+            if(xm<inc_xM){
+                inc=1.0+inc_alp*(xm-inc_xM);
+                if(inc>1.0)inc=1.0;
+            }
+            res=res*inc;
+            res=res*pow(pow(10.,xm-hodp.Msat)-pow(10.,hodp.Mcut-hodp.Msat),hodp.alpsat);
+            return res;
+        }
     }
-    double res=0.0;
-    if(xm<nc_mmin || xm>nc_mmax){
-        res=0.0;
-    }else{
-        res=pow(10.,gsl_spline_eval(nc_spline,xm,nc_acc));
-    }
-    if(res>1.0) res=1.0;
-    return res;
-}
-
-///Average number of satellite galaxies in a halo of mass m
-double hod::nsat(double xm)
-{
-    if(!bool_init_ns){
-        std::cout<<"Spline for Ns not initialized\n";
-    }
-    double res=0.0;
-    if(xm<ns_mmin || xm>ns_mmax){
-        res=0.0;
-    }else{
-        res=pow(10.,gsl_spline_eval(ns_spline,xm,ns_acc));
-    }
-    return res;
 }
 
 void hod::init_Nc_spl(double xx[],double yy[],int Ncspl){
@@ -200,102 +302,6 @@ void hod::init_Ns_spl(double xx[],double yy[],int Nsspl){
     ns_mmin=xx[0];
     ns_mmax=xx[Nsspl-1];
 }
-#elif TINK==3
-// This uses a modified prescription of Martin White's 2012 model
-// White -> This model
-// Mcut -> Mmin
-// kMcut -> Mcut
-// M1 -> Msat
-// alp -> alpsat
-// fac -> central occupation maximum
-///And now all the different functions 
-///Average number of central galaxies in a halo of mass m
-double hod::ncen(double xm)
-{
-    double arg=(xm-hodp.Mmin)/hodp.siglogM;
-    double res=hodp.fac*0.5*(1+gsl_sf_erf(arg));
-    return res;
-}
-
-///Average number of satellite galaxies in a halo of mass m
-double hod::nsat(double xm)
-{
-    if(xm<hodp.Mcut){
-        return 0;
-    }else{
-        double res=pow(pow(10.,xm-hodp.Msat)-pow(10.,hodp.Mcut-hodp.Msat),hodp.alpsat);
-        return res;
-    }
-}
-#elif TINK==4
-// This uses a modified prescription of Martin White's 2012 model
-// White -> This model
-// Mcut -> Mmin
-// kMcut -> Mcut -> Mass at which the central occupation becomes one. Use this and fac to calculate the slope
-// M1 -> Msat
-// alp -> alpsat
-// fac -> central occupation maximum at Mmin
-///And now all the different functions 
-///Average number of central galaxies in a halo of mass m
-double hod::ncen(double xm)
-{
-    double arg=(xm-hodp.Mmin)/hodp.siglogM;
-    double slp=(1.-hodp.fac)/(hodp.Mcut-hodp.Mmin);
-    double factor=hodp.fac+(xm-hodp.Mmin)*slp;
-    if(factor<0.0) factor=0.0;
-    if(factor>1.0) factor=1.0;
-    double res=factor*0.5*(1+gsl_sf_erf(arg));
-    return res;
-}
-
-///Average number of satellite galaxies in a halo of mass m
-double hod::nsat(double xm)
-{
-    double res=pow(pow(10.,xm-hodp.Msat),hodp.alpsat);
-    return res;
-}
-#else
-// This can use the Martin White prescription from White et al. 2012
-// White -> This model
-// Mcut -> Mmin
-// kMcut -> Mcut
-// M1 -> Msat
-// alp -> alpsat
-///And now all the different functions 
-///Average number of central galaxies in a halo of mass m
-double hod::ncen(double xm)
-{
-    double arg=(xm-hodp.Mmin)/hodp.siglogM;
-    double res=0.5*(1+gsl_sf_erf(arg));
-    double inc=1.0;
-    if(xm<inc_xM){
-        inc=1.0+inc_alp*(xm-inc_xM);
-        if(inc>1.0)inc=1.0; // Guarantees the code works even if inc_alp is negative, effectively ignoring inc_alp in that case
-        if(inc<0.0)inc=0.0; // Guarantees the code works even if inc_alp is negative, effectively ignoring inc_alp in that case
-    }
-    return res*inc;
-}
-
-///Average number of satellite galaxies in a halo of mass m
-double hod::nsat(double xm)
-{
-    //if(xm<hodp.Mcut||xm<hodp.Mmin){
-    if(xm<hodp.Mcut){
-        return 0;
-    }else{
-        double arg=(xm-hodp.Mmin)/hodp.siglogM;
-        double res=0.5*(1+gsl_sf_erf(arg));
-        double inc=1.0;
-        if(xm<inc_xM){
-            inc=1.0+inc_alp*(xm-inc_xM);
-            if(inc>1.0)inc=1.0; // Guarantees the code works even if inc_alp is negative, effectively ignoring inc_alp in that case
-        }
-        res=res*inc;
-        res=res*pow(pow(10.,xm-hodp.Msat)-pow(10.,hodp.Mcut-hodp.Msat),hodp.alpsat);
-        return res;
-    }
-}
-#endif
 
 ///Average number of satellite galaxies 
 double hod::nsatz(double z)
@@ -449,6 +455,12 @@ double hod::Pk_gg_gd_he(double z)
     double mdep_2h_bcorr=0.0;
     double mdep_2h_mcorr=0.0;
 
+    // Decorated HOD: concentration-split arrays
+    bool decorated = (hodp.hodtype==6 && hodp.sig_lnc>0.0);
+    double c200_hi[N9_16], c200_lo[N9_16];
+    double Ncen_hi[N9_16], Ncen_lo[N9_16];
+    double Nsat_hi[N9_16], Nsat_lo[N9_16];
+
     double totNc=0.0;
     double totNs=0.0;
     double btot=0.0;
@@ -463,6 +475,25 @@ double hod::Pk_gg_gd_he(double z)
 
         m200[i]=x9_16[i];
         modelNFWhalo_com(mass, z, mvir[i], rvir[i], cvir[i], r200[i],c200[i]);
+
+        // Decorated HOD: split concentration and modulate occupations
+        if(decorated){
+            c200_hi[i]=c200[i]*exp(+0.6745*hodp.sig_lnc);
+            c200_lo[i]=c200[i]*exp(-0.6745*hodp.sig_lnc);
+            double Acen_eff=hodp.Acen;
+            if(avNcen>0.0 && avNcen<1.0){
+                double max_Acen=std::min(avNcen,1.0-avNcen)/avNcen;
+                if(fabs(Acen_eff)>max_Acen) Acen_eff=(Acen_eff>0?max_Acen:-max_Acen);
+            }
+            Ncen_hi[i]=avNcen*(1.0+Acen_eff);
+            Ncen_lo[i]=avNcen*(1.0-Acen_eff);
+            double Asat_eff=hodp.Asat;
+            if(fabs(Asat_eff)>1.0) Asat_eff=(Asat_eff>0?1.0:-1.0);
+            Nsat_hi[i]=avNsat*(1.0+Asat_eff);
+            Nsat_lo[i]=avNsat*(1.0-Asat_eff);
+            if(Nsat_hi[i]<0.0) Nsat_hi[i]=0.0;
+            if(Nsat_lo[i]<0.0) Nsat_lo[i]=0.0;
+        }
 
         // 1 halo M dependent terms that need a kterm multiplication
         mdep_1hcs[i]=avNcen*avNsat*nofmdm;
@@ -589,22 +620,58 @@ double hod::Pk_gg_gd_he(double z)
             //exit(101);
 
             // Now the integrals for the 1 halo term
-            if (miyatake21switch){
+            if(decorated){
+                // Concentration-split 1-halo: compute uk for both sub-populations
+                double uk_s_hi=ukinterp(karr[kk]*r200[i]/c200_hi[i], c200_hi[i]);
+                double uk_s_lo=ukinterp(karr[kk]*r200[i]/c200_lo[i], c200_lo[i]);
+                double uk_d_hi=uk_s_hi;
+                double uk_d_lo=uk_s_lo;
+                if(hodp.csbycdm!=1.0){
+                    uk_s_hi=ukinterp(karr[kk]*r200[i]/(c200_hi[i]*hodp.csbycdm),hodp.csbycdm*c200_hi[i]);
+                    uk_s_lo=ukinterp(karr[kk]*r200[i]/(c200_lo[i]*hodp.csbycdm),hodp.csbycdm*c200_lo[i]);
+                }
+                double nofmdm_i=nofm(pow(10.,x9_16[i]),z)*w9_16[i]*pow(10.,x9_16[i])*log(10.0);
+                double nrm_cs=(totNc>0&&totNs>0)?1.0/(totNc*totNs):0.0;
+                double nrm_ss=(totNs>0)?1.0/(totNs*totNs):0.0;
+                int_1hcs+=0.5*(Ncen_hi[i]*Nsat_hi[i]*nofmdm_i*nrm_cs*uk_s_hi*uk_cen[i]
+                              +Ncen_lo[i]*Nsat_lo[i]*nofmdm_i*nrm_cs*uk_s_lo*uk_cen[i]);
+                int_1hss+=0.5*(Nsat_hi[i]*Nsat_hi[i]*nofmdm_i*nrm_ss*pow(uk_s_hi,2.)
+                              +Nsat_lo[i]*Nsat_lo[i]*nofmdm_i*nrm_ss*pow(uk_s_lo,2.));
+                if(fgm_m0<0.0){
+                    double nrm_cd=(totNc>0)?1.0/totNc:0.0;
+                    double nrm_sd=(totNs>0)?1.0/totNs:0.0;
+                    double mass=pow(10.,x9_16[i]);
+                    int_1hcd+=0.5*(Ncen_hi[i]*mass*nofmdm_i/rho_aver*nrm_cd*uk_d_hi*uk_cen[i]
+                                  +Ncen_lo[i]*mass*nofmdm_i/rho_aver*nrm_cd*uk_d_lo*uk_cen[i]);
+                    int_1hsd+=0.5*(Nsat_hi[i]*mass*nofmdm_i/rho_aver*nrm_sd*uk_s_hi*uk_d_hi
+                                  +Nsat_lo[i]*mass*nofmdm_i/rho_aver*nrm_sd*uk_s_lo*uk_d_lo);
+                }else{
+                    double nrm_cd=(totNc>0)?1.0/totNc:0.0;
+                    double nrm_sd=(totNs>0)?1.0/totNs:0.0;
+                    double mass=pow(10.,x9_16[i]);
+                    int_1hcd+=0.5*(Ncen_hi[i]*mass*nofmdm_i/rho_aver*nrm_cd*uk_d_hi*fofM[i]*uk_cen[i]
+                                  +Ncen_lo[i]*mass*nofmdm_i/rho_aver*nrm_cd*uk_d_lo*fofM[i]*uk_cen[i]);
+                    int_1hsd+=0.5*(Nsat_hi[i]*mass*nofmdm_i/rho_aver*nrm_sd*uk_s_hi*uk_d_hi*fofM[i]
+                                  +Nsat_lo[i]*mass*nofmdm_i/rho_aver*nrm_sd*uk_s_lo*uk_d_lo*fofM[i]);
+                }
+            }else if (miyatake21switch){
                 double avNcen = ncen(x9_16[i]);
                 if (avNcen>0){
-		    int_1hcs+=mdep_1hcs[i]*uk_s[i]*uk_cen[i]/ncen(x9_16[i]); /// --> Change here Divide by ncen(M)
-		    int_1hss+=mdep_1hss[i]*pow(uk_s[i],2.)/ncen(x9_16[i]);  /// --> Change here Divide by ncen(M)
+		    int_1hcs+=mdep_1hcs[i]*uk_s[i]*uk_cen[i]/ncen(x9_16[i]);
+		    int_1hss+=mdep_1hss[i]*pow(uk_s[i],2.)/ncen(x9_16[i]);
                 }
             }else{
 		int_1hcs+=mdep_1hcs[i]*uk_s[i]*uk_cen[i];
-		int_1hss+=mdep_1hss[i]*pow(uk_s[i],2.);  
+		int_1hss+=mdep_1hss[i]*pow(uk_s[i],2.);
             }
-            if(fgm_m0<0.0){
-                int_1hcd+=mdep_1hcd[i]*uk_d[i]*uk_cen[i];
-                int_1hsd+=mdep_1hsd[i]*uk_s[i]*uk_d[i];
-            }else{
-                int_1hcd+=mdep_1hcd[i]*uk_d[i]*fofM[i]*uk_cen[i];
-                int_1hsd+=mdep_1hsd[i]*uk_s[i]*uk_d[i]*fofM[i];
+            if(!decorated){
+                if(fgm_m0<0.0){
+                    int_1hcd+=mdep_1hcd[i]*uk_d[i]*uk_cen[i];
+                    int_1hsd+=mdep_1hsd[i]*uk_s[i]*uk_d[i];
+                }else{
+                    int_1hcd+=mdep_1hcd[i]*uk_d[i]*fofM[i]*uk_cen[i];
+                    int_1hsd+=mdep_1hsd[i]*uk_s[i]*uk_d[i]*fofM[i];
+                }
             }
 
         }
@@ -803,7 +870,12 @@ double hod::Pk_gg_gd(double z)
     std::cout<<"# Calling Pk_gg_gd\n";
     }
 
-    // Sanity check 
+    // Sanity check
+    if(hodp.hodtype==6 && hodp.sig_lnc>0.0){
+        std::cout<<"Decorated HOD (hodtype=6) requires halo exclusion. Please enable halo exclusion"<<std::endl;
+        std::cout<<"I am going to abort execution inside Pk_gg_gd"<<std::endl;
+        exit(110);
+    }
     if(fcen_off!=0.0||off_rbyrs!=0.0){
         std::cout<<"The offset central case is not handled while the halo exclusion is not on. Please enable halo exclusion"<<std::endl;
         std::cout<<"I am going to abort execution inside Pk_gg_gd"<<std::endl;
@@ -2022,23 +2094,22 @@ void hod::hod_free()
 
 void hod::print(cosmo p, hodpars h)
 {
-    printf(" %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg \n", p.Om0, p.Omk, p.w0, p.wa, p.s8, p.nspec, p.Omb, p.hval, p.ximax, p.cfac, h.Mmin, h.siglogM, h.Msat, h.alpsat, h.Mcut, h.csbycdm, h.fac );
+    printf(" %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %d %lg %lg %lg %lg %lg \n", p.Om0, p.Omk, p.w0, p.wa, p.s8, p.nspec, p.Omb, p.hval, p.ximax, p.cfac, h.Mmin, h.siglogM, h.Msat, h.alpsat, h.Mcut, h.csbycdm, h.fac, h.hodtype, h.Acen, h.Asat, h.Mq, h.sigq, h.sig_lnc );
 }
 
 void hod::print(FILE *&fp, cosmo p, hodpars h)
 {
-    fprintf(fp,"%lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg \n", p.Om0, p.s8, p.nspec, p.Omb, p.hval, p.ximax, p.cfac, h.Mmin, h.siglogM, h.Msat, h.alpsat, h.Mcut, h.csbycdm, h.fac);
+    fprintf(fp,"%lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %d %lg %lg %lg %lg %lg \n", p.Om0, p.s8, p.nspec, p.Omb, p.hval, p.ximax, p.cfac, h.Mmin, h.siglogM, h.Msat, h.alpsat, h.Mcut, h.csbycdm, h.fac, h.hodtype, h.Acen, h.Asat, h.Mq, h.sigq, h.sig_lnc);
 }
 
 void hod::print(FILE *&fp, cosmo p, hodpars h, double facc, double c2)
 {
-    fprintf(fp," %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg \n", p.Om0, p.Omk, p.w0, p.wa, p.s8, p.nspec, p.Omb, p.hval, p.ximax, p.cfac, h.Mmin, h.siglogM, h.Msat, h.alpsat, h.Mcut, h.csbycdm, h.fac, facc, c2);
+    fprintf(fp," %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %d %lg %lg %lg %lg %lg \n", p.Om0, p.Omk, p.w0, p.wa, p.s8, p.nspec, p.Omb, p.hval, p.ximax, p.cfac, h.Mmin, h.siglogM, h.Msat, h.alpsat, h.Mcut, h.csbycdm, h.fac, facc, c2, h.hodtype, h.Acen, h.Asat, h.Mq, h.sigq, h.sig_lnc);
 }
 
 void hod::print()
 {
-    //printf("# %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg %lg \n", Omega0, Omegal, w0, wa, sigma8, ns, Omegab, h, xiNLzetamax, cfactor, hodp.Mmin, hodp.siglogM, hodp.Msat, hodp.alpsat, hodp.Mcut, hodp.csbycdm, hodp.fac );
-    printf("# %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg \n", Omega0, Omegal, w0, wa, sigma8, ns, Omegab, h, xiNLzetamax, cfactor, hodp.Mmin, hodp.siglogM, hodp.Msat, hodp.alpsat, hodp.Mcut, hodp.csbycdm, hodp.fac,off_rbyrs,fcen_off,inc_alp,inc_xM);
+    printf("# %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %.8lg %d %.8lg %.8lg %.8lg %.8lg %.8lg \n", Omega0, Omegal, w0, wa, sigma8, ns, Omegab, h, xiNLzetamax, cfactor, hodp.Mmin, hodp.siglogM, hodp.Msat, hodp.alpsat, hodp.Mcut, hodp.csbycdm, hodp.fac,off_rbyrs,fcen_off,inc_alp,inc_xM, hodp.hodtype, hodp.Acen, hodp.Asat, hodp.Mq, hodp.sigq, hodp.sig_lnc);
 }
 
 /*
@@ -2426,6 +2497,17 @@ double hod::pspec_halomodel(double z){
 void hod::hod_renew(hodpars h){
     // First free up all the memory associated with all splines
     hod_free();
+
+    if(bool_init_nc){
+        gsl_interp_accel_free(nc_acc);
+        gsl_spline_free(nc_spline);
+        bool_init_nc=false;
+    }
+    if(bool_init_ns){
+        gsl_interp_accel_free(ns_acc);
+        gsl_spline_free(ns_spline);
+        bool_init_ns=false;
+    }
 
     // Set up new hod parameters
     hodp=h;

@@ -1,10 +1,6 @@
 #ifndef HOD_H
 #define HOD_H
 
-#ifndef TINK
-#define TINK 0
-#endif
-
 #ifndef OFFNEW
 #define OFFNEW 0
 #endif
@@ -51,6 +47,21 @@ struct hodpars
 
     //
     double fac,csbycdm;
+
+    // Model selector: 0=White+2012, 1=Zheng05, 2=Tabulated,
+    // 3=ModWhite, 4=ModWhite2, 5=Zheng07, 6=Decorated, 7=Quenched
+    int hodtype;
+
+    // Decorated HOD parameters (Hearin+2016)
+    double Acen;
+    double Asat;
+
+    // High-mass quenching parameters
+    double Mq;
+    double sigq;
+
+    // Concentration scatter for decorated HOD
+    double sig_lnc;
 
 };
 
@@ -105,8 +116,7 @@ class hod : public cosmology
     gsl_interp_accel *sd_acc;
     gsl_spline *sd_spline;
 
-#if TINK==2
-    /// Numerical interpolation units for SD
+    /// Numerical interpolation units for tabulated HOD (hodtype==2)
     bool bool_init_nc;
     gsl_interp_accel *nc_acc;
     gsl_spline *nc_spline;
@@ -114,15 +124,13 @@ class hod : public cosmology
     double nc_mmin;
     double nc_mmax;
 
-    /// Numerical interpolation units for SD
+    /// Numerical interpolation units for tabulated HOD (hodtype==2)
     bool bool_init_ns;
     gsl_interp_accel *ns_acc;
     gsl_spline *ns_spline;
 
     double ns_mmin;
     double ns_mmax;
-
-#endif
 
     /// Halo exclusion
     bool halo_exc;
@@ -262,10 +270,8 @@ class hod : public cosmology
     void hod_renew(cosmo p, hodpars h);
     void hod_renew(hodpars h);
 
-#if TINK==2
     void init_Nc_spl(double xx[],double yy[],int Ncspl);
     void init_Ns_spl(double xx[],double yy[],int Nsspl);
-#endif
 
     // This option sets up output split by different one halo-two halo contributions, use with caution
     int whichopt;
