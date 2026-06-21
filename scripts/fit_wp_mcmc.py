@@ -587,6 +587,7 @@ def main():
         if esd_rp is not None:
             save_dict["esd_rp"] = esd_rp
             save_dict["esd_data"] = esd_data
+            save_dict["esd_err"] = np.sqrt(np.diag(np.linalg.inv(Cinv_esd)))
         np.savez(output_path, **save_dict)
 
     # Summary
