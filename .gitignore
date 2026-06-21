@@ -1,0 +1,9 @@
+build/*
+install/*
+dist/*
+*.egg-info
+*.egg
+*/__pycache__/*
+*_wrap.cpp
+*.so
+src/*.py
